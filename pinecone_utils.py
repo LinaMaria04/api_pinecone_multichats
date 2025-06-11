@@ -1,0 +1,124 @@
+# C:\Proyectos\api_python\pinecone_utils.py
+
+import os
+from dotenv import load_dotenv
+from pinecone import Pinecone, ServerlessSpec
+from langchain_openai import OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from langchain_core.documents import Document
+from langchain_openai import ChatOpenAI
+from typing import List
+import traceback # Para print_exc()
+
+load_dotenv()
+
+# Variables globales para cachear las instancias 
+_pinecone_client_instance = None
+_embedding_model_instance = None 
+_chat_model_instance = None 
+
+# --- Funciones para obtener las instancias ---
+
+# Inicializa y devulve el cliente de Pinecone si no ha sido creado aún.
+def get_pinecone_client():
+    global _pinecone_client_instance
+    if _pinecone_client_instance is None:
+        try:
+            api_key = os.getenv("PINECONE_API_KEY")
+            if not api_key:
+                raise ValueError("PINECONE_API_KEY debe estar configurada.")
+            _pinecone_client_instance = Pinecone(api_key=api_key) 
+            print("DEBUG: Cliente de Pinecone (principal) inicializado correctamente.")
+        except Exception as e:
+            print(f"ERROR: No se pudo inicializar el cliente de Pinecone (principal): {e}")
+            raise
+    return _pinecone_client_instance
+
+# Devuelve una especificación de Pinecone Serverless basada en las variables de entorno. 
+def get_pinecone_spec():
+    cloud = os.getenv("PINECONE_CLOUD", "aws")
+    region = os.getenv("PINECONE_REGION", "us-east-1")
+    print(f"DEBUG: Usando ServerlessSpec con cloud='{cloud}' y region='{region}'")
+    return ServerlessSpec(cloud=cloud, region=region)
+
+# Crea una instancia de modelo de embedding de OpenAI
+def get_embedding_model():
+
+    global _embedding_model_instance # Declara que vamos a usar la variable global
+    if _embedding_model_instance is None:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        
+        print(f"DEBUG: Intentando obtener OPENAI_API_KEY para Embeddings. Clave {'encontrada' if openai_api_key else 'NO encontrada'}")
+
+        if not openai_api_key:
+            raise ValueError("OPENAI_API_KEY no está configurada en las variables de entorno para embeddings. Por favor, configúrala.")
+        
+        try:
+            _embedding_model_instance = OpenAIEmbeddings( # Asigna a la variable global
+                openai_api_key=openai_api_key, 
+                model="text-embedding-3-small",
+                dimensions=1024 # Es importante que la dimensión de tu índice Pinecone coincida con esta
+            )
+            print(f"DEBUG: Modelo de Embeddings '{_embedding_model_instance.model}' inicializado correctamente con {_embedding_model_instance.dimensions} dimensiones.")
+        except Exception as e:
+            traceback.print_exc()
+            raise RuntimeError(f"Falló la inicialización del modelo de embeddings de OpenAI: {e}. "
+                               "Verifica tu clave de API y la conexión a OpenAI.")
+    return _embedding_model_instance # Devuelve la instancia cacheada
+
+# Crea una instancia del modelo de chat GPT (ChatOpenAI)
+def get_openai_chat_model():
+    global _chat_model_instance # Declara que vamos a usar la variable global
+    if _chat_model_instance is None:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        print(f"DEBUG: Intentando obtener OPENAI_API_KEY para ChatModel. Clave {'encontrada' if openai_api_key else 'NO encontrada'}")
+
+        if not openai_api_key:
+            raise ValueError("OPENAI_API_KEY no está configurada en las variables de entorno. Por favor, configúrala.")
+        
+        try:
+            _chat_model_instance = ChatOpenAI( # Asigna a la variable global
+                openai_api_key=openai_api_key, 
+                model="gpt-3.5-turbo",
+                temperature=0.7
+            )
+            print(f"DEBUG: Modelo de Chat OpenAI ('{_chat_model_instance.model_name}') inicializado correctamente.")
+        except Exception as e:
+            traceback.print_exc()
+            raise RuntimeError(f"Falló la inicialización del modelo de chat de OpenAI: {e}. "
+                               "Verifica tu clave de API y la conexión a OpenAI.")
+    return _chat_model_instance # Devuelve la instancia cacheada
+
+
+# Obtiene un vectorstore basado en el nombre del índice en Pinecone
+def get_pinecone_vectorstore(index_name: str):
+    if not index_name:
+        raise ValueError("Se requiere un nombre de indice para obtener el vectorstore en Pinecone")
+
+    if index_name.startswith('vs_'):
+        pinecone_friendly_index_name = index_name.replace('_', '-')
+        print(f"DEBUG: Nombre de índice original de OpenAI: '{index_name}', convertido a: '{pinecone_friendly_index_name}' para LangChain/Pinecone.")
+    else:
+        pinecone_friendly_index_name = index_name 
+
+    embeddings_model = get_embedding_model() 
+    
+    # Usar el nombre convertido para interactuar con PineconeVectorStore
+    vectorstore = PineconeVectorStore(
+        index_name=pinecone_friendly_index_name, 
+        embedding=embeddings_model,
+    )
+    print(f"DEBUG: PineconeVectorStore para '{pinecone_friendly_index_name}' inicializado.")
+    return vectorstore
+
+# Inserta documentos (chunks) en un índice Pinecone
+def upsert_documents_to_pinecone(documents: List[Document], index_name: str):
+    embeddings = get_embedding_model() 
+    
+    print(f"DEBUG: Upserting {len(documents)} documents (chunks) to Pinecone index '{index_name}'.")
+    PineconeVectorStore.from_documents(
+        documents=documents,
+        embedding=embeddings,
+        index_name=index_name
+    )
+    print(f"DEBUG: Documents (chunks) successfully upserted to Pinecone index '{index_name}'.")

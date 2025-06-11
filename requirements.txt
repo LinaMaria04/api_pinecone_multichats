@@ -1,0 +1,11 @@
+# api_python/requerimientos.txt
+fastapi    #Framework para construir APIs
+uvicorn[standard]  #Servicio para ejecutar APIs
+pinecone-client #Libreria oficial para interactuar con Pinecone
+openai #Libreria para interactuar con API de openai
+anthropic #Libreria para interactuar con API de anthropic
+langchain #Framework principal para construir aplicaciones LLM
+langchain-openai #Conector de langchain para los modelos de openai
+langchain-anthropic #Conector de langchain para los modelos de anthropic
+langchain-pinecone #Conector de langchain para Pinecone como VectorStore
+python-dotenv #Para cargar variables de entorno desde el archivo .env
