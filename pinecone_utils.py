@@ -3,7 +3,8 @@
 import os
 from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
-from langchain_openai import OpenAIEmbeddings
+#from langchain_openai import OpenAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI
@@ -41,30 +42,25 @@ def get_pinecone_spec():
     print(f"DEBUG: Usando ServerlessSpec con cloud='{cloud}' y region='{region}'")
     return ServerlessSpec(cloud=cloud, region=region)
 
-# Crea una instancia de modelo de embedding de OpenAI
+# Genera los embedding con HUGINGFACE EMBEDDING
 def get_embedding_model():
+    global _embedding_model_instance
+    if _embedding_model_instance is None: # Solo inicializa si aún no existe
+        HUGGINGFACE_EMBEDDING_MODEL_NAME = os.getenv("HUGGINGFACE_EMBEDDING_MODEL_NAME", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
-    global _embedding_model_instance # Declara que vamos a usar la variable global
-    if _embedding_model_instance is None:
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        
-        print(f"DEBUG: Intentando obtener OPENAI_API_KEY para Embeddings. Clave {'encontrada' if openai_api_key else 'NO encontrada'}")
+        print(f"DEBUG: Intentando inicializar el modelo de embeddings de Hugging Face: {HUGGINGFACE_EMBEDDING_MODEL_NAME}")
 
-        if not openai_api_key:
-            raise ValueError("OPENAI_API_KEY no está configurada en las variables de entorno para embeddings. Por favor, configúrala.")
-        
         try:
-            _embedding_model_instance = OpenAIEmbeddings( # Asigna a la variable global
-                openai_api_key=openai_api_key, 
-                model="text-embedding-3-small",
-                dimensions=1024 # Es importante que la dimensión de tu índice Pinecone coincida con esta
+            _embedding_model_instance = HuggingFaceEmbeddings(
+                model_name=HUGGINGFACE_EMBEDDING_MODEL_NAME,
+                encode_kwargs={'normalize_embeddings': True}
             )
-            print(f"DEBUG: Modelo de Embeddings '{_embedding_model_instance.model}' inicializado correctamente con {_embedding_model_instance.dimensions} dimensiones.")
+            print(f"DEBUG: Modelo de Embeddings de Hugging Face '{HUGGINGFACE_EMBEDDING_MODEL_NAME}' inicializado correctamente.")
         except Exception as e:
-            traceback.print_exc()
-            raise RuntimeError(f"Falló la inicialización del modelo de embeddings de OpenAI: {e}. "
-                               "Verifica tu clave de API y la conexión a OpenAI.")
-    return _embedding_model_instance # Devuelve la instancia cacheada
+            traceback.print_exc() 
+            raise RuntimeError(f"Falló la inicialización del modelo de embeddings de Hugging Face: {e}. "
+                               "Asegúrate de que el modelo exista, que `sentence-transformers` esté instalado y que haya suficiente RAM/CPU.")
+    return _embedding_model_instance
 
 # Crea una instancia del modelo de chat GPT (ChatOpenAI)
 def get_openai_chat_model():

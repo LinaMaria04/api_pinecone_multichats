@@ -5,9 +5,9 @@ from langchain_core.documents import Document
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 import pinecone_utils
-from typing import Optional # ¡Importa Optional!
+from typing import Optional 
 
-def get_retrieval_qa_chain(index_name: str, system_behavior: Optional[str] = None): # <-- AÑADIDO ESTE PARÁMETRO
+def get_retrieval_qa_chain(index_name: str, system_behavior: Optional[str] = None): 
     
     if not index_name:
         raise ValueError("Se requiere un nombre de índice para obtener la cadena de RAG.")
@@ -23,8 +23,7 @@ def get_retrieval_qa_chain(index_name: str, system_behavior: Optional[str] = Non
 
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-    # 2. Definir el Prompt:
-    # AHORA USAMOS system_behavior EN EL TEMPLATE
+    #Definir el Prompt:
     base_template = """Eres un asistente amigable y útil. Responde a la pregunta basándote únicamente en el siguiente contexto:
     {context}
 
