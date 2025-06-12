@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 import pinecone_utils
 from typing import Optional 
+from operator import itemgetter
 
 def get_retrieval_qa_chain(index_name: str, system_behavior: Optional[str] = None): 
     
@@ -44,11 +45,12 @@ def get_retrieval_qa_chain(index_name: str, system_behavior: Optional[str] = Non
         return "\n\n---\n\n".join(doc.page_content for doc in docs)
 
     rag_chain = (
-        {"context": retriever | RunnableLambda(format_docs), "question": RunnablePassthrough()}
+        {"context": itemgetter("question") | retriever,"question": RunnablePassthrough()}
         | prompt
         | llm
         | StrOutputParser()
     )
 
     print(f"DEBUG: rag_chain antes de retornar en get_retrieval_qa_chain: {rag_chain}")
-    return rag_chain
+    #return rag_chain
+    return {"qa_chain": rag_chain, "retriever": retriever}

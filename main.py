@@ -150,20 +150,35 @@ async def ingest_file(
 @app.post("/ask_chatbot")
 async def ask_chatbot(request: ChatRequest):
     try:
+        chain_components = langchain_utils.get_retrieval_qa_chain(
+            index_name=request.vectorstore_id, 
+            system_behavior=request.comportamiento_chat
+        )
+        qa_chain = chain_components["qa_chain"]
+        retriever = chain_components["retriever"] 
         
-        qa_chain = langchain_utils.get_retrieval_qa_chain(index_name=request.vectorstore_id, system_behavior=request.comportamiento_chat)
-        print(f"DEBUG: qa_chain después de la llamada en ask_chatbot: {qa_chain}")
+        docs = retriever.invoke(request.question) 
         
+        print("\n--- DOCUMENTOS RECUPERADOS PARA LA PREGUNTA ---")
+        print(f"Pregunta del usuario: {request.question}") 
+        for i, doc in enumerate(docs):
+            print(f"Documento {i+1}:")
+            print(f"  Contenido: {doc.page_content[:500]}...")
+            if doc.metadata:
+                print(f"  Metadatos: {doc.metadata}")
+            print("-" * 20)
+        print("------------------------------------------\n")
         
-        result = qa_chain.invoke(request.question)
-        response_content = result  
+        result = qa_chain.invoke({"question": request.question}) 
+        response_content = result 
         
         return {"response": response_content}
 
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error al procesar la pregunta del chatbot: {e}")   
+        raise HTTPException(status_code=500, detail=f"Error al procesar la pregunta del chatbot: {e}")
+ 
 
 #Realizar busquedad semnatica en Pinecone usando Simiularity Search
 @app.get("/query_pinecone_index")   
