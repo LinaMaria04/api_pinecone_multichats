@@ -2,7 +2,7 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from pydantic import BaseModel
 from langchain_core.documents import Document
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 import pinecone_utils
 import langchain_utils
 import config
@@ -37,6 +37,7 @@ class ChatRequest(BaseModel):
     vectorstore_id: str # ID del vectorstore (Nombre del índice en Pinecone)
     comportamiento_chat: str = "" 
     chat_history: list = [] # Campo opcional si decides enviar historial de chat
+    chat_id: Optional[int] = None
 
 # Evento de inicio de la API
 @app.on_event("startup")
@@ -76,7 +77,9 @@ async def ingest_file(
     document_id: str = Form(...),
     metadata_json: str = Form(...),
     vectorstore_id: str = Form(...),
+    chat_id: Optional[Union[str, int]] = Form(None)
 ):
+    print(f"DEBUG: chat_id recibido en ingest_file: {chat_id}")
     try:
         metadata = json.loads(metadata_json)
         file_content = await file.read()
@@ -105,12 +108,18 @@ async def ingest_file(
 
         # LÓGICA DE CHUNKING AQUÍ!
         #Crear un Documento base con todo el texto
-        base_document = Document(page_content=text_content, metadata={
-            "original_file_name": file.filename, # Nombre original del archivo
-            "document_id": document_id, # ID único que envías desde Laravel
-            **metadata # fusionar metadatos enviados desde Laravel
-        })
 
+        # En main.py, dentro de ingest_file, al construir base_document
+        base_document_metadata = {
+            "original_file_name": file.filename,
+            "document_id": document_id,
+            **metadata # fusionar metadatos enviados desde Laravel (que ya NO incluirá 'chat_id')
+        }
+
+        if chat_id is not None:
+            base_document_metadata["chat_id"] = chat_id 
+
+        base_document = Document(page_content=text_content, metadata=base_document_metadata)
         #Inicializar el Text Splitter
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,  # Tamaño recomendado de chunks
@@ -123,6 +132,11 @@ async def ingest_file(
         chunks = text_splitter.split_documents([base_document])
         print(f"DEBUG: El archivo original se dividió en {len(chunks)} chunks.")
 
+        target_namespace = None
+        if chat_id is not None:
+            target_namespace = str(chat_id) 
+            print(f"DEBUG: Ingestando en namespace: '{target_namespace}'")
+
         #Limpiar o añadir metadatos específicos para cada chunk
         processed_chunks = []
         for i, chunk in enumerate(chunks):
@@ -134,7 +148,7 @@ async def ingest_file(
 
         #Llamar a la función de ingesta de Pinecone con los CHUNKS
         print(f"DEBUG: Ingestando {len(processed_chunks)} chunks en el vectorstore '{vectorstore_id}'...")
-        pinecone_utils.upsert_documents_to_pinecone(processed_chunks, vectorstore_id)
+        pinecone_utils.upsert_documents_to_pinecone(processed_chunks, vectorstore_id, name_space=chat_id)
         print(f"DEBUG: Documento con ID '{document_id}' ingestado exitosamente (chunks).")
 
         return {"message": "Archivo y datos ingestados exitosamente", "document_id": document_id, "chunks_ingested": len(processed_chunks)}
@@ -152,7 +166,8 @@ async def ask_chatbot(request: ChatRequest):
     try:
         chain_components = langchain_utils.get_retrieval_qa_chain(
             index_name=request.vectorstore_id, 
-            system_behavior=request.comportamiento_chat
+            system_behavior=request.comportamiento_chat,
+            chat_id=request.chat_id
         )
         qa_chain = chain_components["qa_chain"]
         retriever = chain_components["retriever"] 

@@ -8,7 +8,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI
-from typing import List
+from typing import List, Optional, Union
 import traceback # Para print_exc()
 
 load_dotenv()
@@ -87,7 +87,7 @@ def get_openai_chat_model():
 
 
 # Obtiene un vectorstore basado en el nombre del índice en Pinecone
-def get_pinecone_vectorstore(index_name: str):
+def get_pinecone_vectorstore(index_name: str, namespace: Optional[Union[str, int]] = None):
     if not index_name:
         raise ValueError("Se requiere un nombre de indice para obtener el vectorstore en Pinecone")
 
@@ -98,23 +98,35 @@ def get_pinecone_vectorstore(index_name: str):
         pinecone_friendly_index_name = index_name 
 
     embeddings_model = get_embedding_model() 
+
+    pinecone_namespace = str(namespace) if namespace is not None else None
+
+    print(f"DEBUG: [pinecone_utils] Inicializando PineconeVectorStore para '{index_name}' con namespace '{pinecone_namespace}'.")
     
     # Usar el nombre convertido para interactuar con PineconeVectorStore
     vectorstore = PineconeVectorStore(
         index_name=pinecone_friendly_index_name, 
         embedding=embeddings_model,
+        namespace=pinecone_namespace 
     )
     print(f"DEBUG: PineconeVectorStore para '{pinecone_friendly_index_name}' inicializado.")
     return vectorstore
 
 # Inserta documentos (chunks) en un índice Pinecone
-def upsert_documents_to_pinecone(documents: List[Document], index_name: str):
-    embeddings = get_embedding_model() 
-    
-    print(f"DEBUG: Upserting {len(documents)} documents (chunks) to Pinecone index '{index_name}'.")
-    PineconeVectorStore.from_documents(
+def upsert_documents_to_pinecone(documents: List[Document], index_name: str, name_space:Optional[Union[str, int]] = None):
+    embeddings = get_embedding_model()
+
+    target_namespace = None
+    if name_space is not None:
+        target_namespace = str(name_space)
+
+    print(f"DEBUG: VectorStore existente para '{index_name}' inicializado.")
+    # Carga la instancia del vectorstore existente usando el nombre del índice y el modelo de embeddings
+    vectorstore = PineconeVectorStore.from_existing_index(index_name=index_name, embedding=embeddings)
+
+    # Usa add_documents para añadir los documentos al namespace específico
+    vectorstore.add_documents(
         documents=documents,
-        embedding=embeddings,
-        index_name=index_name
+        namespace=target_namespace
     )
-    print(f"DEBUG: Documents (chunks) successfully upserted to Pinecone index '{index_name}'.")
+    print(f"DEBUG: Documentos (chunks) insertados con exito en el indice '{index_name}' en el namespace '{target_namespace}'.")
