@@ -35,7 +35,7 @@ class DataToUpsert(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     vectorstore_id: str # ID del vectorstore (Nombre del índice en Pinecone)
-    comportamiento_chat: str = "" 
+    comportamiento_chat: Optional[str] = "" 
     chat_history: list = [] # Campo opcional si decides enviar historial de chat
     chat_id: Optional[int] = None
 
