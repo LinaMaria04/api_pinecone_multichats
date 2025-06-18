@@ -25,6 +25,8 @@ app = FastAPI(
     description="API para interactuar con Pinecone, OpenAI y LangChain para tu chatbot PHP."
 )
 
+#pc = os.getenv("PINECONE_API_KEY")
+
 # Modelos Pydantic para la validación de datos de entrada
 class DataToUpsert(BaseModel):
     id: str
@@ -264,3 +266,76 @@ async def create_pinecone_index(
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error al crear/verificar el índice de Pinecone: {e}")
+    
+class DeleteRequest(BaseModel):
+    index_name: str
+    document_id: str
+    chat_id: Optional[Union[str, int]] = None
+
+
+@app.post("/delete_from_pinecone")
+async def delete_from_pinecone(request: DeleteRequest):
+    try:
+        pinecone_client = pinecone_utils.get_pinecone_client()
+        if pinecone_client is None:
+            raise HTTPException(status_code=500, detail="El cliente de Pinecone no está inicializado.")
+
+        # Verificar el indice
+        pinecone_index_descriptions = pinecone_client.list_indexes()
+        existing_index_names = [idx.name for idx in pinecone_index_descriptions]
+
+        if request.index_name not in existing_index_names:
+            raise HTTPException(status_code=404, detail=f"El índice '{request.index_name}' no existe en Pinecone.")
+
+        index = pinecone_client.Index(request.index_name)
+
+        # Pasar el Namespace
+        namespace_to_delete_from = None
+        if request.chat_id is not None:
+            namespace_to_delete_from = str(request.chat_id) # El namespace debe ser String
+            print(f"DEBUG: Intentando eliminar en namespace: '{namespace_to_delete_from}' (Tipo: {type(namespace_to_delete_from)})")
+        else:
+            print("DEBUG: No se proporcionó chat_id, intentando eliminar en el namespace por defecto (cadena vacía).")
+
+        #Filtro para eliminación
+        delete_filter = {
+            "document_id": request.document_id # document_id del archivo
+        }
+
+        if request.chat_id is not None:
+            delete_filter["chat_id"] = str(request.chat_id) 
+
+        print(f"DEBUG: Intentando eliminar con filtro: {delete_filter} en namespace: '{namespace_to_delete_from or 'default'}' para index '{request.index_name}'")
+
+        #Verificar si los vectores existen ANTES de eliminarlos con el filtro
+        try:
+            dummy_vector = [0.0] * 384 #Dimensión del indice
+            
+            # Ajusta top_k para ver si encuentra múltiples chunks del mismo documento
+            found_vectors = index.query(
+                vector=dummy_vector, 
+                top_k=10, # O un número mayor si esperas muchos chunks por archivo
+                filter=delete_filter, 
+                namespace=namespace_to_delete_from,
+                include_metadata=True # Para ver los metadatos de los encontrados
+            )
+            
+            if found_vectors.matches:
+                print(f"DEBUG: ENCONTRADO(S) {len(found_vectors.matches)} vector(es) con el filtro ANTES DE LA ELIMINACIÓN.")
+                for match in found_vectors.matches:
+                    print(f"  - ID: {match.id}, Metadata: {match.metadata}")
+            else:
+                print(f"DEBUG: NINGÚN vector ENCONTRADO con el filtro ANTES DE LA ELIMINACIÓN. ELIMINACIÓN NO TENDRÁ EFECTO.")
+        except Exception as verify_e:
+            print(f"ERROR: Fallo al intentar verificar los documentos antes de eliminar: {verify_e}")
+
+        # Eliminar de acuerdo al filtro.
+        index.delete(filter=delete_filter, namespace=namespace_to_delete_from)
+
+        return {"message": f"Vectores asociados al document_id '{request.document_id}' eliminados exitosamente del índice '{request.index_name}' en el namespace '{namespace_to_delete_from or 'default'}'."}
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        traceback.print_exc()
+        print(f"Error al eliminar de Pinecone: {e}")
+        raise HTTPException(status_code=500, detail=f"Error interno del servidor al eliminar de Pinecone: {str(e)}")
